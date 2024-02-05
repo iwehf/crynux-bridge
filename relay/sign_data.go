@@ -1,17 +1,18 @@
 package relay
 
 import (
-	"encoding/json"
+	"crynux_bridge/utils"
+	"strconv"
+	"time"
+
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
 	log "github.com/sirupsen/logrus"
-	"strconv"
-	"time"
 )
 
 func SignData(data interface{}, privateKeyStr string) (timestamp int64, signature string, err error) {
 
-	dataBytes, err := json.Marshal(data)
+	dataBytes, err := utils.JSONMarshalWithSortedKeys(data)
 	if err != nil {
 		return 0, "", err
 	}
