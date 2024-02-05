@@ -12,15 +12,25 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 )
 
-type GetTaskResultInput struct {
+type GetSDTaskResultInput struct {
 	ImageNum string `json:"image_num"`
 	TaskId   uint64 `json:"task_id"`
+}
+
+type GetGPTTaskResultInput struct {
+	TaskId uint64 `json:"task_id"`
+}
+
+type GetGPTTaskResultResponse struct {
+	Message string                 `json:"message"`
+	Data    models.GPTTaskResponse `json:"data"`
 }
 
 type UploadTaskParamsInput struct {
@@ -91,7 +101,7 @@ func UploadTask(task *models.InferenceTask) error {
 	return nil
 }
 
-func DownloadTaskResult(task *models.InferenceTask) error {
+func DownloadSDTaskResult(task *models.InferenceTask) error {
 
 	appConfig := config.GetConfig()
 
@@ -105,28 +115,15 @@ func DownloadTaskResult(task *models.InferenceTask) error {
 
 	taskIdStr := strconv.FormatUint(task.TaskId, 10)
 
-	var numImages int
-	if task.TaskType == models.TaskTypeSD {
-		var err error
-		numImages, err = models.GetTaskConfigNumImages(task.TaskArgs)
-		if err != nil {
-			return err
-		}
-	} else {
-		numImages = 1
-	}
-
-	var fileExt string
-	if task.TaskType == models.TaskTypeSD {
-		fileExt = ".png"
-	} else {
-		fileExt = ".json"
+	numImages, err := models.GetTaskConfigNumImages(task.TaskArgs)
+	if err != nil {
+		return err
 	}
 
 	for i := numImages - 1; i >= 0; i-- {
 		iStr := strconv.Itoa(i)
 
-		getResultInput := &GetTaskResultInput{
+		getResultInput := &GetSDTaskResultInput{
 			ImageNum: strconv.Itoa(i),
 			TaskId:   task.TaskId,
 		}
@@ -139,12 +136,12 @@ func DownloadTaskResult(task *models.InferenceTask) error {
 		timestampStr := strconv.FormatInt(timestamp, 10)
 
 		queryStr := "?timestamp=" + timestampStr + "&signature=" + signature
-		reqUrl := appConfig.Relay.BaseURL + "/v1/inference_tasks/" + taskIdStr + "/results/" + iStr
+		reqUrl := appConfig.Relay.BaseURL + "/v1/inference_tasks/stable_diffusion/" + taskIdStr + "/results/" + iStr
 		reqUrl = reqUrl + queryStr
 
-		filename := path.Join(taskFolder, iStr+fileExt)
+		filename := path.Join(taskFolder, iStr+".png")
 
-		log.Debugln("Downloading result: " + reqUrl)
+		log.Debugln("Downloading sd result: " + reqUrl)
 
 		resp, err := http.Get(reqUrl)
 		if err != nil {
@@ -191,8 +188,74 @@ func DownloadTaskResult(task *models.InferenceTask) error {
 
 	}
 
-	log.Debugln("All results downloaded!")
+	log.Debugln("All sd results downloaded!")
 
+	return nil
+}
+
+func DownloadGPTTaskResult(task *models.InferenceTask) (err error) {
+	appConfig := config.GetConfig()
+
+	taskFolder := path.Join(
+		appConfig.DataDir.InferenceTasks,
+		strconv.FormatUint(uint64(task.ID), 10))
+
+	if err := os.MkdirAll(taskFolder, 0700); err != nil {
+		return err
+	}
+
+	input := &GetGPTTaskResultInput{
+		TaskId: task.TaskId,
+	}
+
+	timestamp, signature, err := SignData(input, appConfig.Blockchain.Account.PrivateKey)
+	if err != nil {
+		return err
+	}
+
+	queryStr := "?timestamp=" + strconv.FormatInt(timestamp, 10) + "&signature=" + signature
+	reqUrl := appConfig.Relay.BaseURL + "/v1/inference_tasks/gpt/" + strconv.FormatUint(task.TaskId, 10) + "/results"
+	reqUrl = reqUrl + queryStr
+
+	log.Debugln("Downloading result: " + reqUrl)
+
+	resp, err := http.Get(reqUrl)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != 200 {
+		respBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+		return errors.New(string(respBytes))
+	}
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	result := GetGPTTaskResultResponse{}
+	if err := json.Unmarshal(respBytes, &result); err != nil {
+		return err
+	}
+
+	gptRespBytes, err := json.Marshal(result.Data)
+	if err != nil {
+		return err
+	}
+
+	filename := filepath.Join(taskFolder, "0.json")
+	if err := os.WriteFile(filename, gptRespBytes, 0700); err != nil {
+		return err
+	}
+
+	log.Debug("GPT result downloaded")
 	return nil
 }
 

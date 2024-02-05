@@ -50,7 +50,14 @@ func processGetResultTasks() {
 
 		log.Debugln("downloading task results for task id: " + strconv.FormatUint(task.TaskId, 10))
 
-		if err := relay.DownloadTaskResult(&task); err != nil {
+		var err error
+		if task.TaskType == models.TaskTypeSD {
+			err = relay.DownloadSDTaskResult(&task)
+		} else {
+			err = relay.DownloadGPTTaskResult(&task)
+		}
+
+		if err != nil {
 
 			log.Errorln("error while getting image from relay server")
 			log.Errorln(err)
