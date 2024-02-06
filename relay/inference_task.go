@@ -44,8 +44,19 @@ type UploadTaskPramsWithSignature struct {
 	Signature string `json:"signature"`
 }
 
-type UploadResultInput struct {
+type UploadSDResultInput struct {
 	TaskId uint64 `form:"task_id" json:"task_id"`
+}
+
+type UploadGPTResultInput struct {
+	TaskId uint64                 `json:"task_id"`
+	Result models.GPTTaskResponse `json:"result"`
+}
+
+type UploadGPTResultInputWithSignature struct {
+	UploadGPTResultInput
+	Timestamp int64  `json:"timestamp"`
+	Signature string `json:"signature"`
 }
 
 func UploadTask(task *models.InferenceTask) error {
@@ -259,14 +270,14 @@ func DownloadGPTTaskResult(task *models.InferenceTask) (err error) {
 	return nil
 }
 
-func UploadTaskResult(taskId uint64, taskType models.ChainTaskType, resultFiles []io.Reader) error {
+func UploadSDTaskResult(taskId uint64, resultFiles []io.Reader) error {
 
 	pr, pw := io.Pipe()
 	writer := multipart.NewWriter(pw)
 
 	appConfig := config.GetConfig()
 
-	uploadResultInput := &UploadResultInput{
+	uploadResultInput := &UploadSDResultInput{
 		TaskId: taskId,
 	}
 
@@ -278,7 +289,7 @@ func UploadTaskResult(taskId uint64, taskType models.ChainTaskType, resultFiles 
 	go func() {
 		log.Debugln("writing form fields in go routine...")
 
-		err = prepareUploadResultForm(resultFiles, taskType, writer, timestamp, signature)
+		err = prepareUploadResultForm(resultFiles, writer, timestamp, signature)
 		if err != nil {
 			log.Errorln("error preparing the result uploading form")
 			log.Errorln(err)
@@ -302,15 +313,15 @@ func UploadTaskResult(taskId uint64, taskType models.ChainTaskType, resultFiles 
 		log.Debugln("writing form fields completed")
 	}()
 
-	return callUploadResultApi(taskId, writer, pr)
+	return callUploadSDResultApi(taskId, writer, pr)
 }
 
-func callUploadResultApi(taskId uint64, writer *multipart.Writer, body io.Reader) error {
+func callUploadSDResultApi(taskId uint64, writer *multipart.Writer, body io.Reader) error {
 	taskIdStr := strconv.FormatUint(taskId, 10)
 
 	appConfig := config.GetConfig()
 
-	reqUrl := appConfig.Relay.BaseURL + "/v1/inference_tasks/" + taskIdStr + "/results"
+	reqUrl := appConfig.Relay.BaseURL + "/v1/inference_tasks/stable_diffusion/" + taskIdStr + "/results"
 
 	req, err := http.NewRequest("POST", reqUrl, body)
 	if err != nil {
@@ -351,7 +362,6 @@ func callUploadResultApi(taskId uint64, writer *multipart.Writer, body io.Reader
 
 func prepareUploadResultForm(
 	resultFiles []io.Reader,
-	taskType models.ChainTaskType,
 	writer *multipart.Writer,
 	timestamp int64,
 	signature string) error {
@@ -366,15 +376,8 @@ func prepareUploadResultForm(
 		return err
 	}
 
-	var fileExt string
-	if taskType == models.TaskTypeSD {
-		fileExt = ".png"
-	} else {
-		fileExt = ".json"
-	}
-
 	for i := 0; i < len(resultFiles); i++ {
-		part, err := writer.CreateFormFile("images", "image_"+strconv.Itoa(i)+fileExt)
+		part, err := writer.CreateFormFile("images", "image_"+strconv.Itoa(i)+".png")
 		if err != nil {
 			log.Errorln("error creating form file field " + strconv.Itoa(i))
 			return err
@@ -384,6 +387,57 @@ func prepareUploadResultForm(
 			log.Errorln("error copying image to the form field " + strconv.Itoa(i))
 			return err
 		}
+	}
+
+	return nil
+}
+
+func UploadGPTTaskResult(taskId uint64, result models.GPTTaskResponse) (err error) {
+	input := UploadGPTResultInput{
+		TaskId: taskId,
+		Result: result,
+	}
+
+	appConfig := config.GetConfig()
+
+	timestamp, signature, err := SignData(input, appConfig.Blockchain.Account.PrivateKey)
+	if err != nil {
+		return err
+	}
+
+	inputWithSignature := &UploadGPTResultInputWithSignature{
+		UploadGPTResultInput: input,
+		Timestamp:            timestamp,
+		Signature:            signature,
+	}
+
+	reqBytes, err := json.Marshal(inputWithSignature)
+	if err != nil {
+		return err
+	}
+	reqBody := bytes.NewReader(reqBytes)
+
+	reqUrl := appConfig.Relay.BaseURL + "/v1/inference_tasks/gpt/" + strconv.FormatUint(taskId, 10) + "/results"
+
+	client := http.Client{
+		Timeout: time.Duration(3) * time.Second,
+	}
+
+	resp, err := client.Post(reqUrl, "application/json", reqBody)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err = errors.Join(err, resp.Body.Close())
+	}()
+
+	if resp.StatusCode != 200 {
+		respBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+
+		return errors.New("upload task result error" + string(respBytes))
 	}
 
 	return nil

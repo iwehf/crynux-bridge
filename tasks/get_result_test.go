@@ -7,6 +7,7 @@ import (
 	"crynux_bridge/relay"
 	"crynux_bridge/tasks"
 	"crynux_bridge/tests"
+	"encoding/json"
 	"image"
 	"image/png"
 	"io"
@@ -75,7 +76,7 @@ func TestGetSDTaskResult(t *testing.T) {
 	task, err := tests.NewTask(models.TaskTypeSD)
 	assert.Nil(t, err, "error creating task")
 
-	time.Sleep(20 * time.Second)
+	time.Sleep(5 * time.Second)
 	task = tests.AssertTaskStatus(t, task.ID, models.InferenceTaskParamsUploaded)
 
 	// Prepare the images
@@ -122,7 +123,7 @@ func TestGetSDTaskResult(t *testing.T) {
 
 	log.Debugln("task disclosed")
 
-	time.Sleep(20 * time.Second)
+	time.Sleep(5 * time.Second)
 	task = tests.AssertTaskStatus(t, task.ID, models.InferenceTaskPendingResult)
 
 	log.Debugln("ready for upload results")
@@ -156,7 +157,7 @@ func TestGetSDTaskResult(t *testing.T) {
 
 	log.Debugln("upload results using address: " + addresses[1])
 
-	err = relay.UploadTaskResult(task.TaskId, models.TaskTypeSD, imageReaders[:])
+	err = relay.UploadSDTaskResult(task.TaskId, imageReaders[:])
 	assert.Nil(t, err, "error upload task results")
 
 	log.Debugln("task results uploaded")
@@ -173,7 +174,7 @@ func TestGetSDTaskResult(t *testing.T) {
 		getResultChan <- 1
 	})
 
-	time.Sleep(20 * time.Second)
+	time.Sleep(5 * time.Second)
 
 	// The results should be downloaded
 	log.Debugln("download results using address: " + addresses[0])
@@ -258,7 +259,7 @@ func TestGetLLMTaskResult(t *testing.T) {
 	task, err := tests.NewTask(models.TaskTypeLLM)
 	assert.Nil(t, err, "error creating task")
 
-	time.Sleep(20 * time.Second)
+	time.Sleep(5 * time.Second)
 	task = tests.AssertTaskStatus(t, task.ID, models.InferenceTaskParamsUploaded)
 
 	// Prepare response
@@ -266,7 +267,14 @@ func TestGetLLMTaskResult(t *testing.T) {
 
 	log.Debugln("calculating phash")
 
-	hash := blockchain.GetHashForGPTResponse(tests.GPTResponseStr)
+	gptResp := models.GPTTaskResponse{}
+	if err := json.Unmarshal([]byte(tests.GPTResponseStr), &gptResp); err != nil {
+		t.Error(err)
+	}
+	hash, err := blockchain.GetHashForGPTResponse(gptResp)
+	if err != nil {
+		t.Error(err)
+	}
 
 	log.Debugln("response hash created: " + hexutil.Encode(hash))
 
@@ -286,27 +294,10 @@ func TestGetLLMTaskResult(t *testing.T) {
 
 	log.Debugln("task disclosed")
 
-	time.Sleep(20 * time.Second)
+	time.Sleep(5 * time.Second)
 	task = tests.AssertTaskStatus(t, task.ID, models.InferenceTaskPendingResult)
 
 	log.Debugln("ready for upload results")
-
-	respReaders := make([]io.Reader, 1)
-	pr, pw := io.Pipe()
-
-	go func() {
-		log.Debugln("encoding response in go routine")
-
-		_, err := pw.Write([]byte(tests.GPTResponseStr))
-		assert.Nil(t, err, "error write response")
-
-		err = pw.Close()
-		assert.Nil(t, err, "error closing response writer")
-		
-		log.Debugln("encoding response pipe closed")
-	}()
-
-	respReaders[0] = pr
 
 	log.Debugln("uploading task results")
 
@@ -316,7 +307,7 @@ func TestGetLLMTaskResult(t *testing.T) {
 
 	log.Debugln("upload results using address: " + addresses[1])
 
-	err = relay.UploadTaskResult(task.TaskId, models.TaskTypeLLM, respReaders)
+	err = relay.UploadGPTTaskResult(task.TaskId, gptResp)
 	assert.Nil(t, err, "error upload task results")
 
 	log.Debugln("task results uploaded")
@@ -333,7 +324,7 @@ func TestGetLLMTaskResult(t *testing.T) {
 		getResultChan <- 1
 	})
 
-	time.Sleep(20 * time.Second)
+	time.Sleep(5 * time.Second)
 
 	// The results should be downloaded
 	log.Debugln("download results using address: " + addresses[0])
@@ -350,17 +341,15 @@ func TestGetLLMTaskResult(t *testing.T) {
 	_, err = os.Stat(resultFile)
 	assert.Nil(t, err, "result not downloaded")
 
-	f, err := os.Open(resultFile)
-	assert.Nil(t, err, "error opening result file")
+	resultBytes, err := os.ReadFile(resultFile)
+	assert.Nil(t, err, "cannot read downloaded result file")
 
-	respBytes, err := io.ReadAll(f)
-	assert.Nil(t, err, "error reading result file")
-	resp := string(respBytes)
+	downloadedResult := models.GPTTaskResponse{}
+	err = json.Unmarshal(resultBytes, &downloadedResult)
+	assert.Nil(t, err, "unmarshal downloaded result error")
 
-	err = f.Close()
-	assert.Nil(t, err, "error closing result file")
-
-	resultHash := blockchain.GetHashForGPTResponse(resp)
+	resultHash, err:= blockchain.GetHashForGPTResponse(downloadedResult)
+	assert.Nil(t, err, "get hash for gpt response error")
 
 	assert.Equal(t, hexutil.Encode(hash), hexutil.Encode(resultHash), "hash for result mismatch")
 

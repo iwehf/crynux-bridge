@@ -55,7 +55,7 @@ func TestUploadRightTask(t *testing.T) {
 		task, err := tests.NewTask(taskType)
 		assert.Nil(t, err, "error creating task")
 	
-		time.Sleep(40 * time.Second)
+		time.Sleep(5 * time.Second)
 		task = tests.AssertTaskStatus(t, task.ID, models.InferenceTaskParamsUploaded)
 	
 		// Task must be finished before clearing the network
