@@ -138,7 +138,7 @@ func autoCreateTasks(ctx context.Context) error {
 			}
 			log.Infof("AutoTask: pending auto tasks count: %d", cnt)
 			if cnt > appConfig.Task.PendingAutoTasksLimit {
-				time.Sleep(30 * time.Second)
+				time.Sleep(2 * time.Second)
 				continue
 			}
 			queuedTasks, err := relay.GetQueuedTasks(ctx)
@@ -149,7 +149,7 @@ func autoCreateTasks(ctx context.Context) error {
 			}
 			log.Infof("AutoTask: queued task count %d", queuedTasks)
 			if uint64(queuedTasks) > appConfig.Task.PendingAutoTasksLimit {
-				time.Sleep(30 * time.Second)
+				time.Sleep(2 * time.Second)
 				continue
 			}
 
@@ -162,7 +162,7 @@ func autoCreateTasks(ctx context.Context) error {
 				return err
 			}
 		}
-		time.Sleep(5 * time.Second)
+		time.Sleep(2 * time.Second)
 	}
 }
 
