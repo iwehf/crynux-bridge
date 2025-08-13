@@ -17,8 +17,9 @@ import (
 	"gorm.io/gorm"
 )
 
-func generateRandomTask(client models.Client) *models.InferenceTask {
+func generateRandomTask(client models.Client, pendingLargeVramLLMTasksCount uint64) *models.InferenceTask {
 	appConfig := config.GetConfig()
+	pendingLargeVramLLMTasksLimit := appConfig.Task.PendingLargeVramLLMTasksLimit
 
 	clientTask := models.ClientTask{Client: client}
 
@@ -61,9 +62,14 @@ func generateRandomTask(client models.Client) *models.InferenceTask {
 		taskType = models.TaskTypeSD
 		taskFee = appConfig.Task.SDTaskFee
 	default:
-		minVram = 24
 		seed := rand.Intn(100000000)
-		taskArgs = fmt.Sprintf(`{"model":"Qwen/Qwen2.5-7B","messages":[{"role":"user","content":"I want to create an AI agent. Any suggestions?"}],"tools":null,"generation_config":{"max_new_tokens":250,"do_sample":true,"temperature":0.8,"repetition_penalty":1.1},"seed":%d,"dtype":"bfloat16"}`, seed)
+		if pendingLargeVramLLMTasksCount < pendingLargeVramLLMTasksLimit {
+			minVram = 32
+			taskArgs = fmt.Sprintf(`{"model":"Qwen/Qwen2.5-14B","messages":[{"role":"user","content":"I want to create an AI agent. Any suggestions?"}],"tools":null,"generation_config":{"max_new_tokens":250,"do_sample":true,"temperature":0.8,"repetition_penalty":1.1},"seed":%d,"dtype":"bfloat16"}`, seed)
+		} else {
+			minVram = 24
+			taskArgs = fmt.Sprintf(`{"model":"Qwen/Qwen2.5-7B","messages":[{"role":"user","content":"I want to create an AI agent. Any suggestions?"}],"tools":null,"generation_config":{"max_new_tokens":250,"do_sample":true,"temperature":0.8,"repetition_penalty":1.1},"seed":%d,"dtype":"bfloat16"}`, seed)
+		}
 		taskType = models.TaskTypeLLM
 		taskFee = appConfig.Task.LLMTaskFee
 	}
@@ -99,6 +105,21 @@ func getPendingAutoTasksCount(ctx context.Context, client models.Client) (uint64
 	}
 	var count int64
 	if err := config.GetDB().WithContext(dbCtx).Model(&task).Where(&task).Where("(status = ? OR status = ?)", models.InferenceTaskPending, models.InferenceTaskStarted).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return uint64(count), nil
+}
+
+func getPendingLargeVramLLMTasksCount(ctx context.Context, client models.Client) (uint64, error) {
+	dbCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+
+	task := &models.InferenceTask{
+		Client: client,
+		TaskType: models.TaskTypeLLM,
+	}
+	var count int64
+	if err := config.GetDB().WithContext(dbCtx).Model(&task).Where(&task).Where("(status = ? OR status = ?)", models.InferenceTaskPending, models.InferenceTaskStarted).Where("min_vram > ?", 24).Count(&count).Error; err != nil {
 		return 0, err
 	}
 	return uint64(count), nil
@@ -152,9 +173,15 @@ func autoCreateTasks(ctx context.Context) error {
 				time.Sleep(2 * time.Second)
 				continue
 			}
+			pendingLargeVramLLMTasksCount, err := getPendingLargeVramLLMTasksCount(ctx, client)
+			if err != nil {
+				log.Errorf("AutoTask: cannot get pending large vram llm tasks count %v", err)
+				time.Sleep(2 * time.Second)
+				continue
+			}
 
 			for i := 0; i < batchSize; i++ {
-				task := generateRandomTask(client)
+				task := generateRandomTask(client, pendingLargeVramLLMTasksCount)
 				tasks[i] = task
 			}
 			if err := models.SaveTasks(ctx, config.GetDB(), tasks); err != nil {
