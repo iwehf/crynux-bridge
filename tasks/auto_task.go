@@ -66,7 +66,7 @@ func generateRandomTask(client models.Client, pendingLargeVramLLMTasksCount uint
 		seed := rand.Intn(100000000)
 		if pendingLargeVramLLMTasksCount < pendingLargeVramLLMTasksLimit {
 			r := rand.Float64()
-			if r < 0.3 {
+			if r < 0.5 {
 				minVram = 32
 				taskArgs = fmt.Sprintf(`{"model":"Qwen/Qwen2.5-14B","messages":[{"role":"user","content":"I want to create an AI agent. Any suggestions?"}],"tools":null,"generation_config":{"max_new_tokens":250,"do_sample":true,"temperature":0.8,"repetition_penalty":1.1},"seed":%d,"dtype":"bfloat16"}`, seed)
 				taskFee = appConfig.Task.LLMTaskFee * 4
