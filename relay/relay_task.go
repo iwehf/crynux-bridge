@@ -174,7 +174,7 @@ func CreateTask(ctx context.Context, task *models.InferenceTask) error {
 	appConfig := config.GetConfig()
 
 	taskFee := utils.GweiToWei(big.NewInt(int64(task.TaskFee)))
-	
+
 	var timeout uint64
 	if task.Timeout != 0 {
 		timeout = task.Timeout
@@ -415,13 +415,13 @@ func CancelTask(ctx context.Context, task *models.InferenceTask, abortReason mod
 	return nil
 }
 
-func CheckBalanceForTaskCreator(ctx context.Context) error {
+func CheckQuotaForTaskCreator(ctx context.Context) error {
 
 	appConfig := config.GetConfig()
 
 	address := appConfig.Blockchain.Account.Address
 
-	reqUrl := appConfig.Relay.BaseURL + fmt.Sprintf("/v1/balance/%s", address)
+	reqUrl := appConfig.Relay.BaseURL + fmt.Sprintf("/v1/task_quota/%s", address)
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -432,26 +432,26 @@ func CheckBalanceForTaskCreator(ctx context.Context) error {
 	}
 	defer resp.Body.Close()
 	if err := processRelayResponse(resp); err != nil {
-		log.Errorf("Relay: CheckBalanceForTaskCreator error: %v", err)
+		log.Errorf("Relay: CheckQuotaForTaskCreator error: %v", err)
 		return err
 	}
 
 	// get and check balance
-	balanceStr := new(string)
-	err = parseRelayResponseData(resp, balanceStr)
+	quotaStr := new(string)
+	err = parseRelayResponseData(resp, quotaStr)
 	if err != nil {
-		log.Errorf("Relay: CheckBalanceForTaskCreator error: %v", err)
+		log.Errorf("Relay: CheckQuotaForTaskCreator error: %v", err)
 	}
-	log.Debugf("Relay: CheckBalanceForTaskCreator, balance: %s", *balanceStr)
+	log.Debugf("Relay: CheckQuotaForTaskCreator, balance: %s", *quotaStr)
 
-	balance, ok := big.NewInt(0).SetString(*balanceStr, 10)
+	quota, ok := big.NewInt(0).SetString(*quotaStr, 10)
 	if !ok {
-		return errors.New("failed to convert balance string to big.Int")
+		return errors.New("failed to convert quota string to big.Int")
 	}
 
 	ethThreshold := utils.EtherToWei(big.NewInt(500))
-	if balance.Cmp(ethThreshold) != 1 {
-		return errors.New("not enough ETH left")
+	if quota.Cmp(ethThreshold) != 1 {
+		return errors.New("not enough quota left")
 	}
 
 	return nil
