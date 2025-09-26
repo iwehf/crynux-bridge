@@ -269,6 +269,14 @@ func getGPTTaskConfigModelIDs(taskArgs string) ([]string, error) {
 	if !ok {
 		return nil, errors.New("model is not a string")
 	}
+	if dtype, ok := taskArgsMap["dtype"]; ok && !IsNil(dtype) {
+		dtype, ok := dtype.(string)
+		if ok {
+			if dtype == "bfloat16" || dtype == "float16" {
+				model = model + "+fp16"
+			}
+		}
+	}
 	modelIDs := []string{"base:" + model}
 	return modelIDs, nil
 }
