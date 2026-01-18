@@ -28,8 +28,9 @@ type parsedLlmToolCallArgs struct {
 
 type ChatCompletionsRequest struct {
 	structs.ChatCompletionsRequest
-	Authorization string `header:"Authorization" validate:"required" description:"API key"`
+	Authorization string  `header:"Authorization" validate:"required" description:"API key"`
 	Timeout       *uint64 `json:"timeout,omitempty" description:"Task timeout" validate:"omitempty"`
+	MinVram       *uint64 `json:"min_vram" description:"mimimal gpu vram required for the crynux task"`
 }
 
 // build TaskInput from ChatCompletionsRequest, create task, wait for task to finish, get task result, then return ChatCompletionsResponse

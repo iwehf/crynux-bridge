@@ -44,9 +44,6 @@ type ChatCompletionsRequest struct {
 	Tools             []map[string]interface{} `json:"tools" description:"A list of tools the model may call. "`
 	User              string                   `json:"user" description:"No use for now. For compatibility with Openai."`
 	WebSearchOptions  json.RawMessage          `json:"web_search_options" description:"No use for now. For compatibility with Openai."`
-
-	// params for crynux task
-	MinVram *uint64 `json:"min_vram" description:"mimimal gpu vram required for the crynux task"`
 }
 
 func (ccr *ChatCompletionsRequest) SetDefaultValues() {
